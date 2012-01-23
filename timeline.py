@@ -14,6 +14,38 @@ class ProfileEntry:
 		self.start = int(commandStart)
 		self.end = int(commandEnd)
 
+	def isKernel(self):
+		return self.key == 66
+
+	def isMemcpy(self):
+		return self.key >= 52 and self.key <= 56
+
+
+class DeviceEntry(ProfileEntry):
+
+	def __init__(self, commandKey, commandName, commandStart, commandEnd, deviceCommandKey, deviceCommandName, timeQueued, timeSubmitted, timeStarted, timeEnded, *args):
+		ProfileEntry.__init__(self, commandKey, commandName, commandStart, commandEnd)
+		self.deviceKey = int(deviceCommandKey)
+		self.deviceName = deviceCommandName
+		self.timeQueued = int(timeQueued)
+		self.timeSubmitted = int(timeSubmitted)
+		self.timeStarted = int(timeStarted)
+		self.timeEnded = int(timeEnded)
+
+		if self.isKernel():
+			self.kernelName = args[6]
+
+		if self.isMemcpy():
+			self.copyBytes = int(args[-1])
+
+
+
+def isDeviceCommand(key):
+	"""Checks if the command will be executed on the device"""
+	return key >= 52 and key < 70
+
+
+
 def parseAPT(aptfilename):
 
 	aptfile = open(aptfilename)
@@ -42,7 +74,11 @@ def parseAPT(aptfilename):
 		if len(line) == 0:
 			break
 
-		entries.append(ProfileEntry(*line[0:4]))
+		if isDeviceCommand(int(line[0])):
+			entry = DeviceEntry(*line)
+		else:
+			entry = ProfileEntry(*line[0:4])
+		entries.append(entry)
 
 	if len(entries) != expected_count:
 		print 'Warning: Expected {0} entries, but found {1} entries'.format(expected_count, len(entries))
@@ -72,7 +108,34 @@ def printCommandKeyList(aptfilename):
 
 
 def main(aptfilename):
-	parseAPT(aptfilename)
+	entries = parseAPT(aptfilename)
+
+	last_device_end = 0
+
+	table_format = '{0:>10}   {1}'
+
+	print 'Device Utilization'
+	print '=================='
+	print
+	print table_format.format('Time (ns)', 'Operation')
+	print
+
+	for entry in entries:
+		if isinstance(entry, DeviceEntry):
+			idle = entry.timeStarted - last_device_end
+			print table_format.format(idle, 'Idle')
+
+			duration = entry.timeEnded - entry.timeStarted
+
+			last_device_end = entry.timeEnded
+
+			if entry.isKernel():
+				description = entry.kernelName
+			elif entry.isMemcpy():
+				description = '{0} of {1} bytes'.format(entry.name, entry.copyBytes)
+
+			print table_format.format(duration, description)
+
 
 
 if __name__ == '__main__':
